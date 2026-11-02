@@ -68,14 +68,14 @@ func (m *mainWindow) field(id string, x, y, w, h float32, value *string, multili
 
 	border := colBorder
 	if focused {
-		border = colAccent
+		border = colInk
 	}
-	p.round(x, y, w, h, 8, border)
-	p.round(x+1, y+1, w-2, h-2, 7, colPanel)
+	p.box(x, y, w, h, 6, colSurface, border)
 	const size = 13
-	lh := p.lineHeight(size) + 2
+	lh := float32(size) * 1.6
+	ty := y + 9 // first line's top
 	if len(r) == 0 {
-		p.text(x+10, y+7, placeholder, size, colDim)
+		p.text(x+12, ty, placeholder, size, colFaint)
 	}
 	blink := focused && time.Now().UnixMilli()/500%2 == 0
 	clip := sdl.Rect{X: int32(x + 2), Y: int32(y + 2), W: int32(w - 4), H: int32(h - 4)}
@@ -85,9 +85,9 @@ func (m *mainWindow) field(id string, x, y, w, h float32, value *string, multili
 	if !multiline {
 		cx := p.measure(string(r[:min(m.cursorFor(id, len(r)), len(r))]), size)
 		shift := max(0, cx-(w-24)) // keep the cursor in view
-		p.text(x+10-shift, y+7, string(r), size, colText)
+		p.text(x+12-shift, ty, string(r), size, colInk)
 		if blink {
-			p.fill(x+10-shift+cx, y+7, 1.5, 16, colText)
+			p.fill(x+12-shift+cx, ty, 1.5, 16, colInk)
 		}
 		return submit
 	}
@@ -100,16 +100,16 @@ func (m *mainWindow) field(id string, x, y, w, h float32, value *string, multili
 			cur = i
 		}
 	}
-	visible := max(1, int((h-12)/lh))
+	visible := max(1, int((h-16)/lh))
 	first := 0
 	if focused {
 		first = max(0, cur-visible+1)
 	}
 	for i := first; i < len(lines) && i < first+visible; i++ {
-		ly := y + 7 + float32(i-first)*lh
-		p.text(x+10, ly, string(r[lines[i][0]:lines[i][1]]), size, colText)
+		ly := ty + float32(i-first)*lh
+		p.text(x+12, ly, string(r[lines[i][0]:lines[i][1]]), size, colInk)
 		if blink && i == cur {
-			p.fill(x+10+p.measure(string(r[lines[i][0]:c]), size), ly, 1.5, 16, colText)
+			p.fill(x+12+p.measure(string(r[lines[i][0]:c]), size), ly, 1.5, 16, colInk)
 		}
 	}
 	return submit

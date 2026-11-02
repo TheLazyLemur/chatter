@@ -45,7 +45,7 @@ func Run(ctx context.Context, d Deps) error {
 		return fmt.Errorf("ttf: %w", err)
 	}
 	defer ttf.Quit()
-	fontPath, err := findFont(d.FontPath)
+	fontPaths, err := findFonts(d.FontPath)
 	if err != nil {
 		return err
 	}
@@ -84,8 +84,8 @@ func Run(ctx context.Context, d Deps) error {
 	a := &app{
 		deps:    d,
 		ctx:     ctx,
-		overlay: &overlay{win: ow, p: newPainter(or, ow, fontPath)},
-		main:    newMainWindow(mw, newPainter(mr, mw, fontPath), d),
+		overlay: &overlay{win: ow, p: newPainter(or, ow, fontPaths)},
+		main:    newMainWindow(mw, newPainter(mr, mw, fontPaths), d),
 	}
 	a.main.visible = true
 	windowFront(mw)
@@ -212,14 +212,14 @@ func (a *app) menu(tag int) {
 
 func (a *app) updateMenubar(st core.Status) {
 	s := a.deps.Dictation.Settings()
-	title := "🎙"
+	symbol := "mic"
 	switch st.State {
 	case core.StateRecording:
-		title = "🔴"
+		symbol = "mic.fill"
 	case core.StateProcessing:
-		title = "⏳"
+		symbol = "ellipsis.circle"
 	}
-	key := title + s.DefaultMode
+	key := symbol + s.DefaultMode
 	for _, m := range s.Modes {
 		key += "\x00" + m.Name
 	}
@@ -227,7 +227,7 @@ func (a *app) updateMenubar(st core.Status) {
 		return
 	}
 	a.menuState = key
-	menubarSetTitle(title)
+	menubarSetSymbol(symbol)
 	toggle := "Start dictation"
 	if st.State == core.StateRecording {
 		toggle = "Stop dictation"

@@ -10,6 +10,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"chatter/internal/core"
 )
 
 // Server starts `fermion serve` when nothing answers at HealthURL, and stops what it started.
@@ -33,6 +35,13 @@ func (s *Server) EnsureRunning(ctx context.Context, wait time.Duration) error {
 		return fmt.Errorf("no transcription server at %s and no autostart command configured", s.HealthURL)
 	}
 	s.mu.Lock()
+	if s.cmd != nil && s.exited != nil {
+		select {
+		case <-s.exited: // it crashed or was killed; start it again
+			s.cmd = nil
+		default:
+		}
+	}
 	if s.cmd == nil {
 		cmd := exec.Command(s.Command[0], s.Command[1:]...)
 		cmd.Stdout, cmd.Stderr = s.Log, s.Log
@@ -89,4 +98,18 @@ func (s *Server) Stop() {
 		_ = syscall.Kill(-s.cmd.Process.Pid, syscall.SIGKILL)
 	}
 	s.cmd = nil
+}
+
+// Supervised makes sure Server is up before each transcription, so a dictation made while
+// Phonon is still loading waits for it, and a failed or crashed start is retried.
+type Supervised struct {
+	Server *Server
+	core.Transcriber
+}
+
+func (s *Supervised) Transcribe(ctx context.Context, rec core.Recording, opts core.TranscribeOptions) (string, error) {
+	if err := s.Server.EnsureRunning(ctx, 5*time.Minute); err != nil {
+		return "", fmt.Errorf("transcription server: %w", err)
+	}
+	return s.Transcriber.Transcribe(ctx, rec, opts)
 }

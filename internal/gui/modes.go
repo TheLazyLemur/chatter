@@ -30,46 +30,88 @@ func (m *mainWindow) modes(top, W float32) float32 {
 	}
 	p := m.p
 	s := m.deps.Dictation.Settings()
-	y := top + 12
-	for _, l := range p.wrap("Click a mode to use it everywhere. Choose Auto (the chip at the top) to let the app pick: "+
-		"a mode switches on in the apps it lists, and other apps get the first mode.", 13, W-200) {
-		p.text(20, y, l, 13, colDim)
-		y += 18
-	}
-	if ok, _ := m.button(W-130, top+10, "New mode", 1); ok {
+	x, cw := float32(pad), W-2*pad
+	bw := p.measure("New mode", 13) + 28
+	if ok, _ := m.button(x+cw-bw, top+32, "New mode", btnPrimary); ok {
 		m.draft, m.focus, m.tabScroll = &modeDraft{useApp: true}, "", 0
 	}
-	y += 14
-	for _, md := range s.Modes {
-		lines := p.wrap(orDefault(md.Instructions, "No rewriting: you get exactly what the transcriber heard."), 13, W-80)
-		h := float32(64 + len(lines)*18)
-		picked := md.Key == s.DefaultMode
-		bg := colPanel
-		if picked {
-			bg = colPanelHi
+	y := m.heading(x, top+30, min(cw-bw-32, 620), "Modes", "Click a mode to use it everywhere. Choose Auto at the top "+
+		"to let the app pick: a mode switches on in the apps it lists, and other apps get the first mode.")
+
+	// A bento grid: pairs of cards whose split alternates 58/42 and 42/58; an odd last card spans the row.
+	const gap = 16
+	for i := 0; i < len(s.Modes); i += 2 {
+		row := s.Modes[i:min(i+2, len(s.Modes))]
+		ws := []float32{cw}
+		if len(row) == 2 {
+			left := (cw - gap) * 0.58
+			if i/2%2 == 1 {
+				left = (cw - gap) * 0.42
+			}
+			ws = []float32{left, cw - gap - left}
 		}
-		p.round(20, y, W-40, h-8, 10, bg)
-		if picked {
-			p.round(20, y, 4, h-8, 2, colAccent)
+		var h float32
+		for j, md := range row {
+			h = max(h, m.modeCard(md, 0, 0, ws[j], 0, s, false))
 		}
-		p.text(36, y+12, md.Name, 16, colText)
-		p.text(36+p.measure(md.Name, 16)+14, y+15, p.ellipsize(modeInfo(md), 12, W-210-p.measure(md.Name, 16)), 12, colDim)
-		ly := y + 40
-		for _, l := range lines {
-			p.text(36, ly, l, 13, colDim)
-			ly += 18
+		cx := x
+		for j, md := range row {
+			m.modeCard(md, cx, y, ws[j], h, s, true)
+			cx += ws[j] + gap
 		}
-		edit, _ := m.button(W-90, y+8, "Edit", 0)
-		switch {
-		case edit:
-			m.draft, m.focus, m.tabScroll = draftOf(md), "", 0
-		case m.in.hit(20, y, W-40, h-8) && !picked:
-			s.DefaultMode = md.Key
-			m.save(s)
-		}
-		y += h
+		y += h + gap
 	}
 	return y
+}
+
+// modeCard lays out one Mode as a card and returns the height it needs. With draw false it
+// only measures; drawn, a click picks the Mode and Edit opens it in the editor.
+func (m *mainWindow) modeCard(md core.Mode, x, y, w, h float32, s core.Settings, draw bool) float32 {
+	p := m.p
+	info := modeInfo(md)
+	body, bodyC := md.Instructions, colText
+	if body == "" {
+		body, bodyC = "No rewriting: you get exactly what the transcriber heard.", colDim
+	}
+	lines := p.wrap(body, 13, w-48)
+	ly := y + 66
+	if info != "" {
+		ly += 26
+	}
+	need := ly - y + float32(len(lines))*21 + 20
+	if !draw {
+		return need
+	}
+
+	picked := md.Key == s.DefaultMode
+	border := colBorder
+	switch {
+	case picked:
+		border = colInk
+	case m.in.over(x, y, w, h):
+		border = colFaint
+	}
+	p.box(x, y, w, h, 12, colSurface, border)
+	nw := p.textIn(serif, x+24, y+20, md.Name, 22, colInk)
+	if picked {
+		p.tag(x+24+nw+12, y+25, "In use", greenBg, greenFg)
+	}
+	if info != "" {
+		p.textIn(mono, x+24, y+62, p.ellipsizeIn(mono, info, 11, w-48), 11, colDim)
+	}
+	for _, l := range lines {
+		p.text(x+24, ly, l, 13, bodyC)
+		ly += 21
+	}
+	edit, _ := m.button(x+w-24-p.measure("Edit", 13)-28, y+20, "Edit", 0)
+	switch {
+	case edit:
+		m.draft, m.focus, m.tabScroll = draftOf(md), "", 0
+	case m.in.hit(x, y, w, h) && !picked:
+		s.DefaultMode = md.Key
+		m.save(s)
+	}
+	return need
 }
 
 func modeInfo(md core.Mode) string {
@@ -100,49 +142,52 @@ func (m *mainWindow) modeEditor(top, W float32) float32 {
 	p := m.p
 	d := m.draft
 	s := m.deps.Dictation.Settings()
-	y := top + 14
+	x, cw := float32(pad), min(W-2*pad, 760)
+	y := top + 30
 	title := "New mode"
 	if d.orig != "" {
 		title = "Edit mode"
 	}
-	p.text(20, y, title, 18, colText)
-	y += 36
+	p.textIn(serif, x, y, title, 26, colInk)
+	y += 58
 
 	label := func(text, hint string) {
-		p.text(20, y, text, 13, colText)
-		p.text(20+p.measure(text, 13)+10, y+1, hint, 12, colDim)
-		y += 22
+		p.text(x, y, text, 13, colInk)
+		p.text(x+p.measure(text, 13)+10, y+1, p.ellipsize(hint, 12, cw-p.measure(text, 13)-10), 12, colDim)
+		y += 24
 	}
 	label("Name", "")
-	m.field("mode-name", 20, y, 320, 30, &d.name, false, "e.g. Jira ticket")
-	y += 44
-	label("Instructions", "what the rewriter should do. Leave empty for the raw transcript, no rewriting.")
-	m.field("mode-instructions", 20, y, W-40, 168, &d.instructions, true, "e.g. Format as a Jira ticket: a title, a description, then acceptance criteria as bullets.")
-	y += 182
+	m.field("mode-name", x, y, 320, 34, &d.name, false, "e.g. Jira ticket")
+	y += 54
+	label("Instructions", "What the rewriter should do. Leave empty for the raw transcript, no rewriting.")
+	m.field("mode-instructions", x, y, cw, 168, &d.instructions, true, "e.g. Format as a Jira ticket: a title, a description, then acceptance criteria as bullets.")
+	y += 188
 	label("Context the rewriter sees", "")
-	x := float32(20)
+	cx := x
 	for _, t := range []struct {
 		text string
 		v    *bool
 	}{{"Target app", &d.useApp}, {"Selected text", &d.useSel}, {"Clipboard", &d.useCB}} {
-		if ok, w := m.chip(x, y, t.text, *t.v); ok {
+		if ok, w := m.chip(cx, y, t.text, *t.v); ok {
 			*t.v = !*t.v
 		} else {
-			x += w + 8
+			cx += w + 8
 		}
 	}
-	y += 42
-	label("Apps", "comma-separated app names or bundle IDs; with Auto picked, this mode switches on in them")
-	m.field("mode-apps", 20, y, W-40, 30, &d.apps, false, "e.g. Linear, Jira, com.atlassian.jira")
-	y += 44
-	label("Vocabulary", "comma-separated; added to your global vocabulary for this mode")
-	m.field("mode-vocab", 20, y, W-40, 30, &d.vocab, false, "")
-	y += 44
-	label("Hotkey", "records straight into this mode, e.g. control+option+j")
-	m.field("mode-hotkey", 20, y, 320, 30, &d.hotkey, false, "none")
-	y += 48
+	y += 50
+	label("Apps", "Comma-separated app names or bundle IDs. With Auto picked, this mode switches on in them.")
+	m.field("mode-apps", x, y, cw, 34, &d.apps, false, "e.g. Linear, Jira, com.atlassian.jira")
+	y += 54
+	label("Vocabulary", "Comma-separated. Added to your global vocabulary for this mode.")
+	m.field("mode-vocab", x, y, cw, 34, &d.vocab, false, "")
+	y += 54
+	label("Hotkey", "Records straight into this mode, e.g. control+option+j")
+	m.field("mode-hotkey", x, y, 320, 34, &d.hotkey, false, "none")
+	y += 58
+	p.fill(x, y, cw, 1, colBorder)
+	y += 24
 
-	if ok, w := m.button(20, y, "Save", 1); ok {
+	if ok, w := m.button(x, y, "Save", btnPrimary); ok {
 		if err := m.saveDraft(s); err != nil {
 			m.flash(err.Error(), true)
 		} else {
@@ -150,7 +195,7 @@ func (m *mainWindow) modeEditor(top, W float32) float32 {
 			m.draft, m.focus, m.tabScroll = nil, "", 0
 			return y
 		}
-	} else if ok, _ := m.button(20+w+8, y, "Cancel", 0); ok {
+	} else if ok, _ := m.button(x+w+8, y, "Cancel", 0); ok {
 		m.draft, m.focus, m.tabScroll = nil, "", 0
 		return y
 	}
@@ -159,7 +204,7 @@ func (m *mainWindow) modeEditor(top, W float32) float32 {
 		if d.confirmDelete {
 			label = "Click again to delete"
 		}
-		if ok, _ := m.button(W-20-p.measure(label, 13)-24, y, label, 2); ok {
+		if ok, _ := m.button(x+cw-p.measure(label, 13)-28, y, label, btnDanger); ok {
 			if !d.confirmDelete {
 				d.confirmDelete = true
 			} else if err := m.deleteMode(s, d.orig); err != nil {

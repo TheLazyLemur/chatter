@@ -47,6 +47,7 @@ func NewSpeech(cfg config.Transcriber, log io.Writer) Speech {
 		}
 		if len(cfg.Autostart) > 0 {
 			s.Server = &fermion.Server{Command: ResolveCommand(cfg.Autostart), HealthURL: cfg.HealthURL, Log: log}
+			s.Transcriber = &fermion.Supervised{Server: s.Server, Transcriber: t}
 		}
 		return s
 	}
@@ -63,7 +64,7 @@ func NewRewriter(cfg config.Rewriter) (core.Rewriter, string) {
 	return r, "Rewriter: " + cfg.Model + " at " + cfg.BaseURL
 }
 
-// ResolveCommand finds cmd[0] on PATH, or in a .venv beside the binary or the working directory.
+// ResolveCommand finds cmd[0] on PATH, or in a .venv beside the binary, the working directory or the config dir.
 func ResolveCommand(cmd []string) []string {
 	if len(cmd) == 0 {
 		panic("wiring: empty command")
@@ -77,6 +78,9 @@ func ResolveCommand(cmd []string) []string {
 	}
 	if wd, err := os.Getwd(); err == nil {
 		dirs = append(dirs, wd)
+	}
+	if d, err := config.Dir(); err == nil {
+		dirs = append(dirs, d) // where `make setup` installs it, so Chatter.app finds it
 	}
 	for _, d := range dirs {
 		p := filepath.Join(d, ".venv", "bin", cmd[0])

@@ -12,43 +12,81 @@ import (
 
 type rgba = sdl.Color
 
+// Warm monochrome, with washed-out pastels reserved for status.
 var (
-	colBg       = rgba{R: 24, G: 24, B: 28, A: 255}
-	colPanel    = rgba{R: 34, G: 34, B: 40, A: 255}
-	colPanelHi  = rgba{R: 48, G: 48, B: 58, A: 255}
-	colBorder   = rgba{R: 60, G: 60, B: 72, A: 255}
-	colText     = rgba{R: 236, G: 236, B: 240, A: 255}
-	colDim      = rgba{R: 150, G: 150, B: 162, A: 255}
-	colAccent   = rgba{R: 124, G: 108, B: 255, A: 255}
-	colRed      = rgba{R: 255, G: 82, B: 82, A: 255}
-	colGreen    = rgba{R: 80, G: 210, B: 130, A: 255}
-	colAmber    = rgba{R: 255, G: 190, B: 70, A: 255}
-	colOverlay  = rgba{R: 18, G: 18, B: 22, A: 255}
-	colWaveform = rgba{R: 200, G: 196, B: 255, A: 255}
+	colCanvas  = rgba{R: 251, G: 251, B: 250, A: 255}
+	colSurface = rgba{R: 255, G: 255, B: 255, A: 255}
+	colBone    = rgba{R: 247, G: 246, B: 243, A: 255}
+	colBorder  = rgba{R: 234, G: 234, B: 234, A: 255}
+	colInk     = rgba{R: 17, G: 17, B: 17, A: 255}
+	colInkHi   = rgba{R: 51, G: 51, B: 51, A: 255}
+	colText    = rgba{R: 47, G: 52, B: 55, A: 255}
+	colDim     = rgba{R: 120, G: 119, B: 116, A: 255}
+	colFaint   = rgba{R: 172, G: 170, B: 165, A: 255}
+
+	redBg, redFg       = rgba{R: 253, G: 235, B: 236, A: 255}, rgba{R: 159, G: 47, B: 45, A: 255}
+	blueBg, blueFg     = rgba{R: 225, G: 243, B: 254, A: 255}, rgba{R: 31, G: 108, B: 159, A: 255}
+	greenBg, greenFg   = rgba{R: 237, G: 243, B: 236, A: 255}, rgba{R: 52, G: 101, B: 56, A: 255}
+	yellowBg, yellowFg = rgba{R: 251, G: 243, B: 219, A: 255}, rgba{R: 149, G: 100, B: 0, A: 255}
 )
 
-var fontCandidates = []string{
-	"/System/Library/Fonts/SFNS.ttf",
-	"/System/Library/Fonts/Helvetica.ttc",
-	"/System/Library/Fonts/Supplemental/Arial.ttf",
-	"/Library/Fonts/Arial Unicode.ttf",
+type family int
+
+const (
+	sans  family = iota // UI and body
+	serif               // headings
+	mono                // metadata and keys
+)
+
+var fontCandidates = [...][]string{
+	sans: {
+		"/System/Library/Fonts/SFNS.ttf",
+		"/System/Library/Fonts/Helvetica.ttc",
+		"/System/Library/Fonts/Supplemental/Arial.ttf",
+		"/Library/Fonts/Arial Unicode.ttf",
+	},
+	serif: {
+		"/System/Library/Fonts/NewYork.ttf",
+		"/System/Library/Fonts/Supplemental/Charter.ttc",
+		"/System/Library/Fonts/Supplemental/Georgia.ttf",
+	},
+	mono: {
+		"/System/Library/Fonts/SFNSMono.ttf",
+		"/System/Library/Fonts/Menlo.ttc",
+	},
 }
 
-func findFont(configured string) (string, error) {
-	for _, p := range append([]string{configured}, fontCandidates...) {
-		if p == "" {
-			continue
+// findFonts resolves each family; serif and mono fall back to the sans font.
+func findFonts(configured string) ([3]string, error) {
+	var out [3]string
+	for f, paths := range fontCandidates {
+		if f == int(sans) {
+			paths = append([]string{configured}, paths...)
 		}
-		if _, err := os.Stat(p); err == nil {
-			return p, nil
+		for _, p := range paths {
+			if _, err := os.Stat(p); p != "" && err == nil {
+				out[f] = p
+				break
+			}
 		}
 	}
-	return "", fmt.Errorf("no font found; set font_path in settings")
+	if out[sans] == "" {
+		return out, fmt.Errorf("no font found; set font_path in settings")
+	}
+	for f := range out {
+		out[f] = orDefault(out[f], out[sans])
+	}
+	return out, nil
+}
+
+type fontKey struct {
+	fam  family
+	size int
 }
 
 type texKey struct {
+	fontKey
 	text  string
-	size  int
 	color rgba
 }
 
@@ -60,16 +98,16 @@ type cached struct {
 
 // painter draws in logical points on a HiDPI renderer, with a text texture cache.
 type painter struct {
-	r        *sdl.Renderer
-	scale    float32
-	fontPath string
-	fonts    map[int]*ttf.Font
-	cache    map[texKey]*cached
-	frame    int
+	r         *sdl.Renderer
+	scale     float32
+	fontPaths [3]string
+	fonts     map[fontKey]*ttf.Font
+	cache     map[texKey]*cached
+	frame     int
 }
 
-func newPainter(r *sdl.Renderer, w *sdl.Window, fontPath string) *painter {
-	p := &painter{r: r, fontPath: fontPath, fonts: map[int]*ttf.Font{}, cache: map[texKey]*cached{}}
+func newPainter(r *sdl.Renderer, w *sdl.Window, fontPaths [3]string) *painter {
+	p := &painter{r: r, fontPaths: fontPaths, fonts: map[fontKey]*ttf.Font{}, cache: map[texKey]*cached{}}
 	p.updateScale(w)
 	_ = r.SetDrawBlendMode(sdl.BLENDMODE_BLEND)
 	return p
@@ -93,15 +131,16 @@ func (p *painter) updateScale(w *sdl.Window) {
 	}
 }
 
-func (p *painter) font(size int) *ttf.Font {
-	if f, ok := p.fonts[size]; ok {
+func (p *painter) font(k fontKey) *ttf.Font {
+	if f, ok := p.fonts[k]; ok {
 		return f
 	}
-	f, err := ttf.OpenFont(p.fontPath, int(float32(size)*p.scale))
+	path := p.fontPaths[k.fam]
+	f, err := ttf.OpenFont(path, int(float32(k.size)*p.scale))
 	if err != nil {
-		panic(fmt.Sprintf("gui: open font %s: %v", p.fontPath, err))
+		panic(fmt.Sprintf("gui: open font %s: %v", path, err))
 	}
-	p.fonts[size] = f
+	p.fonts[k] = f
 	return f
 }
 
@@ -126,13 +165,13 @@ func (p *painter) flush() {
 	}
 }
 
-func (p *painter) texture(text string, size int, c rgba) *cached {
-	k := texKey{text, size, c}
+func (p *painter) texture(text string, fk fontKey, c rgba) *cached {
+	k := texKey{fk, text, c}
 	if t, ok := p.cache[k]; ok {
 		t.lastUsed = p.frame
 		return t
 	}
-	surf, err := p.font(size).RenderUTF8Blended(text, c)
+	surf, err := p.font(fk).RenderUTF8Blended(text, c)
 	if err != nil {
 		return nil
 	}
@@ -146,12 +185,16 @@ func (p *painter) texture(text string, size int, c rgba) *cached {
 	return t
 }
 
-// text draws one line at (x, y) and returns its logical width.
+// text draws one line of sans at (x, y) and returns its logical width.
 func (p *painter) text(x, y float32, s string, size int, c rgba) float32 {
+	return p.textIn(sans, x, y, s, size, c)
+}
+
+func (p *painter) textIn(f family, x, y float32, s string, size int, c rgba) float32 {
 	if s == "" {
 		return 0
 	}
-	t := p.texture(s, size, c)
+	t := p.texture(s, fontKey{f, size}, c)
 	if t == nil {
 		return 0
 	}
@@ -160,11 +203,13 @@ func (p *painter) text(x, y float32, s string, size int, c rgba) float32 {
 	return w
 }
 
-func (p *painter) measure(s string, size int) float32 {
+func (p *painter) measure(s string, size int) float32 { return p.measureIn(sans, s, size) }
+
+func (p *painter) measureIn(f family, s string, size int) float32 {
 	if s == "" {
 		return 0
 	}
-	w, _, err := p.font(size).SizeUTF8(s)
+	w, _, err := p.font(fontKey{f, size}).SizeUTF8(s)
 	if err != nil {
 		return 0
 	}
@@ -172,7 +217,35 @@ func (p *painter) measure(s string, size int) float32 {
 }
 
 func (p *painter) lineHeight(size int) float32 {
-	return float32(p.font(size).Height()) / p.scale
+	return float32(p.font(fontKey{sans, size}).Height()) / p.scale
+}
+
+// caps draws s as small uppercase with wide tracking, rune by rune since SDL_ttf has no
+// letter-spacing. With draw false it only measures.
+func (p *painter) caps(x, y float32, s string, size int, c rgba, draw bool) float32 {
+	start := x
+	for _, r := range strings.ToUpper(s) {
+		ch := string(r)
+		if draw {
+			p.text(x, y, ch, size, c)
+		}
+		x += p.measure(ch, size) + float32(size)*0.09
+	}
+	return x - start
+}
+
+// tag draws a pastel status badge and returns its width.
+func (p *painter) tag(x, y float32, s string, bg, fg rgba) float32 {
+	w := p.caps(0, 0, s, 10, fg, false) + 18
+	p.round(x, y, w, 20, 10, bg)
+	p.caps(x+9, y+4, s, 10, fg, true)
+	return w
+}
+
+// box fills a rounded rectangle with a 1px border.
+func (p *painter) box(x, y, w, h, rad float32, fill, border rgba) {
+	p.round(x, y, w, h, rad, border)
+	p.round(x+1, y+1, w-2, h-2, rad-1, fill)
 }
 
 // wrap breaks s into lines no wider than width, keeping explicit line breaks.
@@ -198,17 +271,21 @@ func (p *painter) wrap(s string, size int, width float32) []string {
 	return out
 }
 
-// ellipsize trims s to fit width.
+// ellipsize trims sans s to fit width.
 func (p *painter) ellipsize(s string, size int, width float32) string {
+	return p.ellipsizeIn(sans, s, size, width)
+}
+
+func (p *painter) ellipsizeIn(f family, s string, size int, width float32) string {
 	s = strings.ReplaceAll(s, "\n", " ")
-	if p.measure(s, size) <= width {
+	if p.measureIn(f, s, size) <= width {
 		return s
 	}
 	r := []rune(s)
 	lo, hi := 0, len(r)
 	for lo < hi {
 		mid := (lo + hi + 1) / 2
-		if p.measure(string(r[:mid])+"…", size) <= width {
+		if p.measureIn(f, string(r[:mid])+"…", size) <= width {
 			lo = mid
 		} else {
 			hi = mid - 1

@@ -6,7 +6,7 @@ package gui
 #include <stdlib.h>
 
 void menubarInit(void);
-void menubarSetTitle(const char *t);
+void menubarSetSymbol(const char *name);
 void menubarSetMenu(const char **titles, int *tags, int *checked, int n);
 void overlayStyle(void *w);
 void overlayShow(void *w, int show);
@@ -39,10 +39,10 @@ func chatterMenuAction(tag C.int) {
 
 func menubarInit() { C.menubarInit() }
 
-func menubarSetTitle(t string) {
-	cs := C.CString(t)
+func menubarSetSymbol(name string) {
+	cs := C.CString(name)
 	defer C.free(unsafe.Pointer(cs))
-	C.menubarSetTitle(cs)
+	C.menubarSetSymbol(cs)
 }
 
 func menubarSetMenu(items []menuItem) {

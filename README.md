@@ -9,13 +9,15 @@ rewriting goes through any OpenAI-compatible chat model.
 
 ```sh
 brew install sdl2 sdl2_ttf ffmpeg     # ffmpeg is only for dropped files
-make setup                            # Phonon-2 into .venv (about 170 MB)
-make run
+make setup                            # Phonon-2 into ~/Library/Application Support/Chatter/.venv (about 170 MB)
+make install                          # builds Chatter.app into /Applications
 ```
 
 On first launch Chatter writes `~/Library/Application Support/Chatter/settings.json` and starts
-`fermion serve phonon-2` itself. Grant **Microphone** and **Accessibility** access to the app
-you launch it from. Accessibility is what lets Chatter paste and read selected text.
+`fermion serve phonon-2` itself. Grant Chatter **Microphone** and **Accessibility** access.
+Accessibility is what lets it paste and read selected text. The app is ad-hoc signed, so each
+rebuild invalidates the Accessibility grant: remove Chatter from that list and add it again.
+`make run` still runs the bare binary, and that needs the grants on your terminal instead.
 
 ## Features
 

@@ -23,8 +23,11 @@ void menubarInit(void) {
 	[NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
 }
 
-void menubarSetTitle(const char *t) {
-	statusItem.button.title = [NSString stringWithUTF8String:t];
+// menubarSetSymbol shows an SF Symbol as a template image, so it follows the menu bar's appearance.
+void menubarSetSymbol(const char *name) {
+	NSImage *img = [NSImage imageWithSystemSymbolName:[NSString stringWithUTF8String:name] accessibilityDescription:@"Chatter"];
+	img.template = YES;
+	statusItem.button.image = img;
 }
 
 // titles: "-" is a separator. tags < 0 are disabled labels.
@@ -52,6 +55,12 @@ void overlayStyle(void *w) {
 		NSWindowCollectionBehaviorStationary | NSWindowCollectionBehaviorIgnoresCycle;
 	win.ignoresMouseEvents = YES;
 	win.hasShadow = YES;
+	// Round the window itself: SDL only paints rectangles.
+	win.opaque = NO;
+	win.backgroundColor = NSColor.clearColor;
+	win.contentView.wantsLayer = YES;
+	win.contentView.layer.cornerRadius = 12;
+	win.contentView.layer.masksToBounds = YES;
 }
 
 // overlayShow orders the overlay in without activating Chatter, so the Target app keeps focus.
